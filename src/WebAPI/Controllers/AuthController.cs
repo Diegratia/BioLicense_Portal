@@ -1,5 +1,6 @@
 using BioLicense_Portal.Application.Interfaces;
 using BioLicense_Portal.Application.Extensions;
+using BioLicense_Portal.Application.Common.Constants;
 using Microsoft.AspNetCore.Mvc;
 using System.Threading.Tasks;
 
@@ -22,17 +23,17 @@ namespace BioLicense_Portal.WebAPI.Controllers
             var response = await _authService.LoginAsync(request);
             if (response == null)
             {
-                return Unauthorized(ApiResponse.Unauthorized("Invalid username or password"));
+                return Unauthorized(ApiResponse.Unauthorized(Messages.Auth.InvalidCredentials));
             }
 
-            return Ok(ApiResponse.Success("Login successful", response));
+            return Ok(ApiResponse.Success(Messages.Auth.LoginSuccess, response));
         }
 
         [HttpPost("seed-owner")]
         public async Task<IActionResult> SeedOwner()
         {
             await _authService.SeedOwnerAsync();
-            return Ok(ApiResponse.Success("Owner seeded successfully"));
+            return Ok(ApiResponse.Success(Messages.Auth.SeedSuccess));
         }
     }
 }

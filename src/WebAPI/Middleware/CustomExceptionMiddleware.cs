@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 using BioLicense_Portal.Application.Extensions;
 using BioLicense_Portal.Application.Exceptions;
+using BioLicense_Portal.Application.Common.Constants;
 using System.Collections.Generic;
 
 namespace BioLicense_Portal.WebAPI.Middleware
@@ -75,7 +76,7 @@ namespace BioLicense_Portal.WebAPI.Middleware
 
                 case UnauthorizedAccessException ex:
                     statusCode = 403;
-                    result = ApiResponse.Forbidden("Access denied");
+                    result = ApiResponse.Forbidden(Messages.Auth.Forbidden);
                     _logger.LogWarning(ex, "Forbidden access");
                     break;
 
@@ -105,7 +106,7 @@ namespace BioLicense_Portal.WebAPI.Middleware
 
                 case DbUpdateException ex:
                     statusCode = 400;
-                    var dbMessage = _env.IsProduction() ? "Database error" : 
+                    var dbMessage = _env.IsProduction() ? Messages.General.InternalError : 
                         (ex.InnerException?.InnerException?.Message ?? ex.InnerException?.Message ?? ex.Message);
 
                     result = ApiResponse.BadRequest(dbMessage);
@@ -114,14 +115,14 @@ namespace BioLicense_Portal.WebAPI.Middleware
 
                 case JsonException ex:
                     statusCode = 400;
-                    var jsonMessage = _env.IsProduction() ? "Invalid JSON format" : ex.Message;
+                    var jsonMessage = _env.IsProduction() ? Messages.General.BadRequest : ex.Message;
                     result = ApiResponse.BadRequest(jsonMessage);
                     _logger.LogWarning(ex, "JSON Deserialization failed: {Message}", ex.Message);
                     break;
 
                 default:
                     statusCode = 500;
-                    var message = _env.IsProduction() ? "Internal server error" : exception.Message;
+                    var message = _env.IsProduction() ? Messages.General.InternalError : exception.Message;
                     result = ApiResponse.InternalError(message);
                     _logger.LogError(exception, "Unhandled exception");
                     break;
