@@ -24,8 +24,12 @@ namespace BioLicense_Portal.Domain.Entities
         public string? LicenseParameters { get; set; } // custom feature parameter dalam json, contoh pada ble yaitu max reader dan max beacon
         [Column("features")]
         public string? Features { get; set; } // string comma feature key
+        [Column("expiry_date")]
+        public DateTime? ExpiryDate { get; set; }
         [Column("request_status")]
         public LicenseRequestStatus RequestStatus { get; set; } = LicenseRequestStatus.Pending; // Pending, Approved, Rejected, Completed
+        [Column("rejection_reason")]
+        public string? RejectionReason { get; set; }
         
         [Column("approver_user_id")]
         public Guid? ApproverUserId { get; set; } // Owner / Engineer

@@ -75,9 +75,14 @@ builder.Services.AddAuthorization();
 
 
 builder.Services.AddScoped<UserRepository>();
+builder.Services.AddScoped<ApplicationRepository>();
+builder.Services.AddScoped<LicenseRepository>();
 builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
+builder.Services.AddScoped<IKeyGeneratorService, KeyGeneratorService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IApplicationService, ApplicationService>();
+builder.Services.AddScoped<ILicenseService, LicenseService>();
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();

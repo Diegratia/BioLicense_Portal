@@ -7,6 +7,7 @@ namespace BioLicense_Portal.Application.Interfaces
         Task<AuthResponseDto?> LoginAsync(LoginRequestDto request);
         Task<AuthResponseDto?> RefreshTokenAsync(string token, string refreshToken);
         Task SeedOwnerAsync();
+        Task SeedDistributorAsync();
     }
 
     public record LoginRequestDto(string Username, string Password);

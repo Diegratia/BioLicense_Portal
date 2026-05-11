@@ -35,5 +35,12 @@ namespace BioLicense_Portal.WebAPI.Controllers
             await _authService.SeedOwnerAsync();
             return Ok(ApiResponse.Success(Messages.Auth.SeedSuccess));
         }
+
+        [HttpPost("seed-distributor")]
+        public async Task<IActionResult> SeedDistributor()
+        {
+            await _authService.SeedDistributorAsync();
+            return Ok(ApiResponse.Success(Messages.Auth.SeedSuccess));
+        }
     }
 }

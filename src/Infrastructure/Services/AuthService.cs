@@ -92,5 +92,23 @@ namespace BioLicense_Portal.Infrastructure.Services
 
             await _userRepository.AddAsync(owner);
         }
+        public async Task SeedDistributorAsync()
+        {
+            var existingDistributor = await _userRepository.GetByUsernameAsync("distributor");
+            if (existingDistributor != null) return;
+
+            var distributor = new User
+            {
+                Id = Guid.NewGuid(),
+                Username = "distributor",
+                Email = "distributor@biolicense.com",
+                FullName = "System Distributor",
+                PasswordHash = _passwordHasher.HashPassword("P@ssw0rd123"), // Default password for seeding
+                Role = UserRole.Distributor,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await _userRepository.AddAsync(distributor);
+        }
     }
 }
