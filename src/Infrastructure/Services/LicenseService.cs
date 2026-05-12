@@ -25,6 +25,27 @@ namespace BioLicense_Portal.Infrastructure.Services
             var app = await _appRepository.GetByIdAsync(request.ApplicationId);
             if (app == null) throw new KeyNotFoundException("Application not found.");
 
+            // Standardize Features and Parameters based on Tier if not Custom
+            var finalFeatures = request.SelectedFeatures;
+            var finalParameters = request.Parameters;
+
+            if (request.LicenseTier != BioLicense_Portal.Domain.Enums.LicenseTier.Custom && !string.IsNullOrEmpty(app.TierConfigs))
+            {
+                try
+                {
+                    var configs = JsonSerializer.Deserialize<Dictionary<string, TierConfigItem>>(app.TierConfigs);
+                    if (configs != null && configs.TryGetValue(request.LicenseTier.ToString(), out var config))
+                    {
+                        finalFeatures = config.Features ?? finalFeatures;
+                        finalParameters = config.Parameters ?? finalParameters;
+                    }
+                }
+                catch (JsonException)
+                {
+                    // Fallback to request values if config is invalid or log error
+                }
+            }
+
             var licenseRequest = new LicenseRequest
             {
                 Id = Guid.NewGuid(),
@@ -36,8 +57,8 @@ namespace BioLicense_Portal.Infrastructure.Services
                 LicenseType = request.LicenseType,
                 LicenseTier = request.LicenseTier,
                 ExpiryDate = request.ExpiryDate,
-                Features = string.Join(",", request.SelectedFeatures),
-                LicenseParameters = JsonSerializer.Serialize(request.Parameters),
+                Features = string.Join(",", finalFeatures),
+                LicenseParameters = JsonSerializer.Serialize(finalParameters),
                 RequestStatus = BioLicense_Portal.Domain.Enums.LicenseRequestStatus.Pending,
                 Notes = request.Notes,
                 RequestedAt = DateTime.UtcNow
@@ -48,6 +69,12 @@ namespace BioLicense_Portal.Infrastructure.Services
             // Reload to get includes
             var savedRequest = await _licenseRepository.GetRequestByIdAsync(licenseRequest.Id);
             return MapToDto(savedRequest!);
+        }
+
+        private class TierConfigItem
+        {
+            public List<string>? Features { get; set; }
+            public Dictionary<string, object>? Parameters { get; set; }
         }
 
         public async Task<IEnumerable<LicenseRequestResponseDto>> GetMyRequestsAsync(Guid distributorId)

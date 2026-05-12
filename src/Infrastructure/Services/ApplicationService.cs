@@ -4,6 +4,7 @@ using BioLicense_Portal.Infrastructure.Repositories;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 using AppEntity = BioLicense_Portal.Domain.Entities.Application;
 
@@ -22,12 +23,14 @@ namespace BioLicense_Portal.Infrastructure.Services
 
         public async Task<IEnumerable<AppResponseDto>> GetAllAsync(string? search = null, int? status = null)
         {
-            return await _repository.GetListAsync(search, status);
+            var results = await _repository.GetListAsync(search, status);
+            return results.Select(MapToDtoWithJson);
         }
 
         public async Task<AppResponseDto?> GetByIdAsync(Guid id)
         {
-            return await _repository.GetProjectedByIdAsync(id);
+            var result = await _repository.GetProjectedByIdAsync(id);
+            return result != null ? MapToDtoWithJson(result) : null;
         }
 
         public async Task<AppResponseDto> CreateAsync(CreateAppRequestDto request)
@@ -57,7 +60,7 @@ namespace BioLicense_Portal.Infrastructure.Services
             // Manual mapping for single response
             return new AppResponseDto(
                 app.Id, app.Name, app.Slug, app.ApplicationType, 
-                app.Description, app.PublicKey, app.Status, new List<FeatureResponseDto>());
+                app.Description, app.PublicKey, app.Status, null, new List<FeatureResponseDto>());
         }
 
         public async Task<bool> UpdateAsync(Guid id, UpdateAppRequestDto request)
@@ -68,6 +71,7 @@ namespace BioLicense_Portal.Infrastructure.Services
             app.Name = request.Name;
             app.Description = request.Description;
             app.Status = request.Status;
+            app.TierConfigs = request.TierConfigs != null ? JsonSerializer.Serialize(request.TierConfigs) : null;
             app.UpdatedAt = DateTime.UtcNow;
 
             await _repository.UpdateAsync(app);
@@ -125,6 +129,24 @@ namespace BioLicense_Portal.Infrastructure.Services
 
             await _repository.DeleteFeatureAsync(feature);
             return true;
+        }
+
+        private AppResponseDto MapToDtoWithJson(AppResponseDto dto)
+        {
+            if (dto.TierConfigs == null) return dto;
+
+            try
+            {
+                var jsonStr = dto.TierConfigs.ToString();
+                if (string.IsNullOrEmpty(jsonStr)) return dto;
+
+                var jsonObj = JsonSerializer.Deserialize<object>(jsonStr);
+                return dto with { TierConfigs = jsonObj };
+            }
+            catch
+            {
+                return dto;
+            }
         }
     }
 }

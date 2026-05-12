@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 using AppEntity = BioLicense_Portal.Domain.Entities.Application;
 
@@ -52,6 +53,7 @@ namespace BioLicense_Portal.Infrastructure.Repositories
                 a.Description,
                 a.PublicKey,
                 a.Status,
+                a.TierConfigs,
                 a.Features.Select(f => new FeatureResponseDto(
                     f.Id,
                     f.FeatureKey,

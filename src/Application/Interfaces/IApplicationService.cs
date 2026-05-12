@@ -19,9 +19,9 @@ namespace BioLicense_Portal.Application.Interfaces
     }
 
     public record CreateAppRequestDto(string Name, string Slug, ApplicationType Type, string? Description, string KeyPassphrase);
-    public record UpdateAppRequestDto(string Name, string? Description, int Status);
+    public record UpdateAppRequestDto(string Name, string? Description, int Status, object? TierConfigs = null);
     public record CreateFeatureRequestDto(string FeatureKey, string DisplayName, string? Description, string Category = "core");
     public record UpdateFeatureRequestDto(string DisplayName, string? Description, string Category, bool IsActive);
-    public record AppResponseDto(Guid Id, string Name, string Slug, ApplicationType Type, string? Description, string? PublicKey, int Status, List<FeatureResponseDto> Features);
+    public record AppResponseDto(Guid Id, string Name, string Slug, ApplicationType Type, string? Description, string? PublicKey, int Status, object? TierConfigs, List<FeatureResponseDto> Features);
     public record FeatureResponseDto(Guid Id, string FeatureKey, string DisplayName, string Category, bool IsActive);
 }
