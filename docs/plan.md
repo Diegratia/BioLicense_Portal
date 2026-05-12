@@ -1,96 +1,94 @@
 # BioLicense Portal - Implementation Plan
 
 ## Context
-Saat ini proses generate license BLE-Tracking dilakukan secara manual melalui console app `LicenseGenerator`. Owner harus menjalankan tool secara manual, copy file `.lic`, dan kirim ke customer/distributor secara manual. Portal ini akan mengotomasi seluruh proses tersebut dan mendukung multi-aplikasi (bukan hanya BLE-Tracking).
+Saat ini proses generate license dilakukan secara manual melalui console app `LicenseGenerator`. Portal ini mengotomasi seluruh proses melalui **sistem ticketing internal** dan mendukung multi-aplikasi.
 
-**Tujuan**: Membuat API-only portal untuk manajemen license multi-aplikasi, dimana Owner bisa generate license, mengelola distributor, dan mengirim license ke distributor.
+**Tujuan**: API-only portal untuk manajemen license multi-aplikasi dengan workflow ticketing.
+
+**Peran Pengguna**:
+- **Owner**: Kontrol penuh (Aplikasi, User Management, Approval license)
+- **TechnicalEngineer**: Review dan generate license (Approval)
+- **Distributor**: Mengajukan request license (Ticketing) untuk client
 
 ---
 
-## Arsitektur Project
+## Arsitektur Project (4-Layer Clean Architecture)
 
 ```
 BioLicense_Portal/
 ├── BioLicense_Portal.sln
 ├── docs/
-│   └── plan.md                    # Dokumentasi plan
 ├── src/
-│   ├── WebAPI/                    # ASP.NET Core Web API (entry point)
-│   │   ├── Program.cs
-│   │   ├── BioLicense_Portal.csproj
-│   │   ├── appsettings.json
-│   │   ├── Endpoints/             # Minimal API endpoint groups
-│   │   │   ├── AuthEndpoints.cs
-│   │   │   ├── ApplicationEndpoints.cs
-│   │   │   ├── FeatureEndpoints.cs
-│   │   │   ├── DistributorEndpoints.cs
-│   │   │   ├── LicenseEndpoints.cs
-│   │   │   └── DashboardEndpoints.cs
-│   │   └── Middleware/
-│   │       ├── ExceptionMiddleware.cs
-│   │       └── AuditMiddleware.cs
-│   ├── Core/                      # Class Library - Domain layer
-│   │   ├── Entities/              # EF Core entity classes
-│   │   ├── Enums/                 # UserRole, LicenseType, LicenseTier, LicenseStatus
-│   │   ├── Interfaces/            # Service contracts
-│   │   └── DTOs/                  # Request/Response models
-│   └── Infrastructure/            # Class Library - Data & Service implementation
-│       ├── Data/
-│       │   ├── BioLicenseDbContext.cs
-│       │   └── Migrations/
-│       ├── Repositories/
-│       ├── Services/
-│       │   ├── AuthService.cs
-│       │   ├── ApplicationService.cs
-│       │   ├── LicenseGeneratorService.cs  # Wraps Standard.Licensing
-│       │   ├── EmailService.cs             # SMTP email delivery
-│       │   └── ...
-│       └── Security/
-│           ├── JwtTokenService.cs
-│           └── PasswordHasher.cs
+│   ├── Domain/                        # Class Library - Pure domain
+│   │   ├── Entities/                  # BaseEntity, User, Application, ApplicationFeature,
+│   │   │                              # LicenseRecord, LicenseRequest, RefreshToken, AuditLog
+│   │   └── Enums/                     # UserRole, LicenseType, LicenseTier, LicenseStatus,
+│   │                                  # ApplicationType, LicenseRequestStatus
+│   ├── Application/                   # Class Library - Business contracts
+│   │   ├── Interfaces/                # IAuthService, IApplicationService, ILicenseService,
+│   │   │                              # IJwtTokenService, IPasswordHasher, IKeyGeneratorService
+│   │   ├── Common/Constants/          # Messages.cs (static response messages)
+│   │   ├── Exceptions/                # NotFoundException, BusinessException, etc.
+│   │   ├── Extensions/                # ApiResponseHelper.cs
+│   │   └── Mappings/                  # MappingProfile.cs (AutoMapper)
+│   ├── Infrastructure/                # Class Library - Data & implementation
+│   │   ├── Data/
+│   │   │   ├── BioLicenseDbContext.cs
+│   │   │   └── Migrations/
+│   │   ├── Repositories/              # UserRepository, ApplicationRepository, LicenseRepository
+│   │   ├── Services/                  # AuthService, ApplicationService, LicenseService
+│   │   └── Security/                  # JwtTokenService, PasswordHasher, KeyGeneratorService
+│   └── WebAPI/                        # ASP.NET Core Web API (entry point)
+│       ├── Program.cs
+│       ├── Controllers/               # AuthController, ApplicationController, LicenseController
+│       └── Middleware/                # CustomExceptionMiddleware
 ```
 
-**Project References**: WebAPI → Core + Infrastructure, Infrastructure → Core, Core → none
+**Project References**: WebAPI → Domain + Application + Infrastructure, Infrastructure → Domain + Application, Application → Domain, Domain → none
 
 ---
 
 ## Database Schema
 
-### `users` - Akun portal (Owner & Distributor)
+### `users`
 | Column | Type | Notes |
 |--------|------|-------|
 | id | uniqueidentifier PK | |
 | username | nvarchar(255) UNIQUE | Login username |
-| password | nvarchar(255) | BCrypt hash |
+| password_hash | nvarchar(255) | BCrypt hash |
 | email | nvarchar(255) UNIQUE | |
 | full_name | nvarchar(255) | |
-| role | nvarchar(50) | "Owner" / "Distributor" |
+| role | nvarchar(50) | Owner / TechnicalEngineer / Distributor |
 | status | int (default 1) | 1=active, 0=inactive |
-| created_at, updated_at, last_login_at | datetime2 | |
+| last_login_at | datetime2 nullable | |
+| created_at, updated_at | datetime2 | Auto by DbContext |
+| created_by, updated_by | uniqueidentifier nullable | |
 
 ### `refresh_tokens`
 | Column | Type | Notes |
 |--------|------|-------|
 | id | uniqueidentifier PK | |
 | user_id | uniqueidentifier FK users | |
-| token | nvarchar(512) | |
+| token | nvarchar(512) | Random bytes |
 | expiry_date | datetime2 | |
 
-### `applications` - Produk/aplikasi terdaftar
+### `applications`
 | Column | Type | Notes |
 |--------|------|-------|
 | id | uniqueidentifier PK | |
 | name | nvarchar(255) UNIQUE | e.g. "BLE-Tracking" |
 | slug | nvarchar(100) UNIQUE | URL-safe identifier |
+| application_type | nvarchar(50) | PeopleTracking/VMS/Parking/SMR/Signage |
 | description | nvarchar(max) | |
-| private_key_encrypted | nvarchar(max) | Encrypted ECDSA private key |
+| private_key_encrypted | nvarchar(max) | AES-encrypted private key |
 | public_key | nvarchar(max) | Public key string |
 | key_passphrase | nvarchar(255) | AES-encrypted passphrase |
+| tier_configs | nvarchar(max) | JSON: tier → {maxBeacons, maxReaders, defaultFeatures} |
 | status | int (default 1) | |
 | created_at, updated_at | datetime2 | |
-| created_by | uniqueidentifier FK users | |
+| created_by, updated_by | uniqueidentifier nullable | |
 
-### `application_features` - Feature per aplikasi
+### `application_features`
 | Column | Type | Notes |
 |--------|------|-------|
 | id | uniqueidentifier PK | |
@@ -104,61 +102,50 @@ BioLicense_Portal/
 
 UNIQUE(`application_id`, `feature_key`)
 
-### `distributors` - Profil perusahaan distributor
+### `license_requests` (Ticketing)
 | Column | Type | Notes |
 |--------|------|-------|
 | id | uniqueidentifier PK | |
-| company_name | nvarchar(255) | |
-| contact_email | nvarchar(255) | |
-| contact_phone | nvarchar(50) | |
-| address | nvarchar(500) | |
-| status | int (default 1) | |
-| created_at, updated_at | datetime2 | |
-
-### `distributor_applications` - Autorisasi & limit distributor per app
-| Column | Type | Notes |
-|--------|------|-------|
-| id | uniqueidentifier PK | |
-| distributor_id | uniqueidentifier FK distributors | |
 | application_id | uniqueidentifier FK applications | |
-| max_trial_licenses | int (default 0) | |
-| max_annual_licenses | int (default 0) | |
-| max_perpetual_licenses | int (default 0) | |
-| trial_created, annual_created, perpetual_created | int (default 0) | Running counters |
-| can_generate | bit (default 1) | |
-| assigned_at | datetime2 | |
-| assigned_by | uniqueidentifier FK users | |
-
-UNIQUE(`distributor_id`, `application_id`)
-
-### `distributor_users` - Link user ke distributor
-| Column | Type | Notes |
-|--------|------|-------|
-| id | uniqueidentifier PK | |
-| user_id | uniqueidentifier FK users UNIQUE | |
-| distributor_id | uniqueidentifier FK distributors | |
-
-### `licenses` - Record setiap license yang di-generate
-| Column | Type | Notes |
-|--------|------|-------|
-| id | uniqueidentifier PK | |
-| license_guid | uniqueidentifier UNIQUE | GUID dalam .lic file |
-| application_id | uniqueidentifier FK applications | |
+| requester_user_id | uniqueidentifier FK users | Distributor |
 | customer_name | nvarchar(255) | |
 | customer_email | nvarchar(255) | |
 | machine_id | nvarchar(255) | Target machine ID |
 | license_type | nvarchar(50) | Trial/Annual/Perpetual |
 | license_tier | nvarchar(50) | Core/Professional/Enterprise/Custom |
-| max_beacons | int | BLE-Tracking specific |
-| max_readers | int | BLE-Tracking specific |
+| license_parameters | nvarchar(max) | JSON: {maxBeacons, maxReaders, ...} |
 | features | nvarchar(max) | Comma-separated feature keys |
-| custom_attributes | nvarchar(max) | JSON untuk atribut tambahan |
+| expiry_date | datetime2 nullable | Custom expiry override |
+| request_status | nvarchar(50) | Pending/Approved/Rejected/Completed |
+| rejection_reason | nvarchar(max) nullable | Alasan penolakan |
+| approver_user_id | uniqueidentifier FK users nullable | Engineer/Owner |
+| license_record_id | uniqueidentifier FK licenses nullable | Link ke license setelah generate |
+| notes | nvarchar(max) | Catatan tambahan |
+| requested_at, processed_at | datetime2 nullable | |
+| created_at, updated_at | datetime2 | |
+
+### `licenses` (Generated License Records)
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uniqueidentifier PK | |
+| license_id | uniqueidentifier UNIQUE | GUID dalam .lic file |
+| application_id | uniqueidentifier FK applications | |
+| customer_name | nvarchar(255) | |
+| customer_email | nvarchar(255) | |
+| machine_id | nvarchar(255) | |
+| license_type | nvarchar(50) | Trial/Annual/Perpetual |
+| license_tier | nvarchar(50) | Core/Professional/Enterprise/Custom |
+| license_parameters | nvarchar(max) | JSON |
+| features | nvarchar(max) | Comma-separated |
+| custom_attributes | nvarchar(max) | JSON atribut tambahan |
 | license_content | nvarchar(max) | Signed .lic content |
-| expires_at | datetime2 | |
+| issued_at | datetime2 | |
+| expired_at | datetime2 | |
 | status | nvarchar(50) default 'Active' | Active/Revoked/Expired |
-| revoked_at, revoked_reason | | |
+| revoked_at | datetime2 nullable | |
+| revoked_reason | nvarchar(max) nullable | |
 | generated_by_user_id | uniqueidentifier FK users | |
-| assigned_to_distributor_id | uniqueidentifier FK distributors nullable | |
+| assigned_to_user_id | uniqueidentifier FK users nullable | Distributor penerima |
 | created_at, updated_at | datetime2 | |
 
 ### `audit_logs`
@@ -167,172 +154,212 @@ UNIQUE(`distributor_id`, `application_id`)
 | id | uniqueidentifier PK | |
 | event_name | nvarchar(100) | e.g. "License.Generated" |
 | entity_name | nvarchar(255) | |
-| entity_id | uniqueidentifier | |
+| entity_id | uniqueidentifier nullable | |
 | actor_user_id | uniqueidentifier FK users | |
-| actor_username | nvarchar(255) | |
+| actor_username | nvarchar(255) | Denormalized |
 | details | nvarchar(max) | JSON |
-| ip_address | nvarchar(50) | |
+| ip_address | nvarchar(50) nullable | |
 | event_time | datetime2 | |
 
 ---
 
 ## API Endpoints
 
-### Auth `/api/v1/auth`
-| Method | Path | Auth | Desc |
-|--------|------|------|------|
-| POST | /auth/login | None | Login → JWT + refresh token |
-| POST | /auth/refresh | None | Refresh access token |
-| POST | /auth/logout | Bearer | Invalidate refresh token |
-| POST | /auth/change-password | Bearer | Ubah password |
-| POST | /auth/seed-owner | None | Seed akun Owner pertama (sekali saja) |
+### Auth `/api/auth`
+| Method | Path | Auth | Desc | Status |
+|--------|------|------|------|--------|
+| POST | /login | None | Login → JWT + refresh token | Done |
+| POST | /seed-owner | None | Seed akun Owner pertama | Done |
+| POST | /seed-distributor | None | Seed akun Distributor | Done |
+| POST | /refresh | None | Refresh access token | **TODO** |
+| POST | /logout | Bearer | Invalidate refresh token | **TODO** |
+| POST | /change-password | Bearer | Ubah password | **TODO** |
 
-### Applications `/api/v1/applications` (Owner only)
-| Method | Path | Desc |
-|--------|------|------|
-| GET | /applications | List semua aplikasi |
-| GET | /applications/{id} | Detail aplikasi |
-| POST | /applications | Register aplikasi baru |
-| PUT | /applications/{id} | Update info aplikasi |
-| DELETE | /applications/{id} | Soft-delete |
-| POST | /applications/{id}/generate-keypair | Generate ECDSA key pair |
-| GET | /applications/{id}/public-key | Ambil public key |
+### Applications `/api/application` (Owner only)
+| Method | Path | Desc | Status |
+|--------|------|------|--------|
+| GET | / | List aplikasi (search/filter) | Done |
+| GET | /{id} | Detail aplikasi | Done |
+| POST | / | Register aplikasi baru (+ auto keypair) | Done |
+| PUT | /{id} | Update aplikasi | Done |
+| DELETE | /{id} | Soft-delete aplikasi | Done |
+| POST | /{id}/features | Tambah feature | Done |
+| PUT | /features/{featureId} | Update feature | Done |
+| DELETE | /features/{featureId} | Hapus feature | Done |
+| POST | /{id}/generate-keypair | Regenerate key pair | **TODO** |
+| GET | /{id}/public-key | Ambil public key | **TODO** |
 
-### Features `/api/v1/applications/{appId}/features` (Owner only)
-| Method | Path | Desc |
-|--------|------|------|
-| GET | .../features | List features |
-| POST | .../features | Tambah feature |
-| PUT | .../features/{id} | Update feature |
-| DELETE | .../features/{id} | Hapus feature |
+### License Requests `/api/licenses/requests` (Bearer)
+| Method | Path | Auth | Desc | Status |
+|--------|------|------|------|--------|
+| POST | / | Distributor | Buat request baru | Done |
+| GET | /my | Distributor | List request sendiri | Done |
+| GET | /pending | Engineer/Owner | List pending requests | Done |
+| POST | /{id}/approve | Engineer/Owner | Approve & generate .lic | **TODO** (approve tanpa generate) |
+| POST | /{id}/reject | Engineer/Owner | Tolak request | Done |
 
-### Distributors `/api/v1/distributors` (Owner only)
-| Method | Path | Desc |
-|--------|------|------|
-| GET | /distributors | List semua distributor |
-| GET | /distributors/{id} | Detail distributor |
-| POST | /distributors | Buat distributor (+ buat user account) |
-| PUT | /distributors/{id} | Update info |
-| DELETE | /distributors/{id} | Soft-delete |
-| POST | /distributors/{id}/assign-application | Authorisasi app + set limits |
-| PUT | /distributors/{id}/applications/{appId}/limits | Update limits |
-| DELETE | /distributors/{id}/applications/{appId} | Cabut authorisasi |
-| POST | /distributors/{id}/reset-usage | Reset counter license |
+### Licenses `/api/licenses` (Bearer)
+| Method | Path | Auth | Desc | Status |
+|--------|------|------|------|--------|
+| GET | / | Bearer | List semua license | **TODO** |
+| GET | /{id} | Bearer | Detail license | **TODO** |
+| GET | /{id}/download | Bearer | Download file .lic | **TODO** |
+| POST | /{id}/revoke | Owner | Revoke license | **TODO** |
 
-### Licenses `/api/v1/licenses` (Owner + Distributor)
-| Method | Path | Auth | Desc |
-|--------|------|------|------|
-| GET | /licenses | Bearer | List (Owner=semua, Distributor=miliknya) |
-| GET | /licenses/{id} | Bearer | Detail license |
-| POST | /licenses/generate | Bearer | Generate license baru |
-| POST | /licenses/{id}/assign-distributor | Owner | Assign ke distributor |
-| POST | /licenses/{id}/revoke | Owner | Revoke license |
-| GET | /licenses/{id}/download | Bearer | Download file .lic |
-
-### Dashboard `/api/v1/dashboard` (Owner only)
-| Method | Path | Desc |
-|--------|------|------|
-| GET | /dashboard/stats | Statistik keseluruhan |
-| GET | /dashboard/application/{appId}/stats | Statistik per app |
-| GET | /dashboard/distributor/{distId}/usage | Usage distributor vs limits |
+### Dashboard `/api/dashboard` (Owner only)
+| Method | Path | Desc | Status |
+|--------|------|------|--------|
+| GET | /stats | Statistik keseluruhan | **TODO** |
+| GET | /application/{appId}/stats | Statistik per app | **TODO** |
 
 ---
 
 ## Key Flows
 
-### Flow 1: Owner Generate License
-1. Owner kirim `POST /licenses/generate` dengan applicationId, customerName, machineId, licenseType, licenseTier, features
-2. System load private key dari `applications` table
-3. Validasi feature keys ada di `application_features`
-4. Hitung expiry: Trial=7 hari, Annual=1 tahun, Perpetual=100 tahun
-5. Build attributes dictionary → sign dengan Standard.Licensing
-6. Simpan ke `licenses` table + audit log
-7. Kirim email ke customer/distributor dengan .lic file attachment
-8. Return license record + download URL
+### Flow 1: Distributor Request License (Ticketing)
+1. Distributor kirim `POST /api/licenses/requests` dengan applicationId, customerName, machineId, licenseType, licenseTier, features
+2. System validasi app exists, resolve TierConfig (auto-fill parameters untuk non-Custom tier)
+3. Status disimpan sebagai `Pending`
+4. **Current code**: `LicenseService.CreateRequestAsync()`
 
-### Flow 2: Owner Assign License ke Distributor
-1. Owner kirim `POST /licenses/{id}/assign-distributor` dengan distributorId
-2. Validasi license Active, distributor terauthorisasi untuk app tersebut
-3. Set `assigned_to_distributor_id` pada license record
-4. Kirim email notifikasi ke distributor
-5. Audit log
-6. Distributor bisa lihat & download license tsb
+### Flow 2: Engineer Approve & Generate License
+1. Engineer lihat `GET /api/licenses/requests/pending`
+2. Engineer klik approve `POST /api/licenses/requests/{id}/approve`
+3. System load private key dari `applications` table → decrypt passphrase
+4. Build attributes dictionary (MachineID, LicenseType, LicenseTier, MaxBeacons, MaxReaders, Features)
+5. Sign license menggunakan **Standard.Licensing**:
+   ```csharp
+   var license = License.New()
+       .WithUniqueIdentifier(Guid.NewGuid())
+       .As(LicenseType.Standard)
+       .ExpiresAt(expiration)
+       .WithAdditionalAttributes(attributes)
+       .LicensedTo(customerName, customerEmail)
+       .CreateAndSignWithPrivateKey(privateKey, passphrase);
+   ```
+6. Create `LicenseRecord` di database
+7. Link `LicenseRequest.LicenseRecordId` → license record
+8. Set `LicenseRequest.RequestStatus = "Completed"`
+9. Kirim email ke distributor/customer dengan .lic attachment
+10. Tulis audit log
+11. **Current gap**: step 4-10 belum diimplementasi
 
-### Flow 3: Distributor Generate License (dengan limit)
-1. Distributor kirim `POST /licenses/generate`
-2. System extract distributorId dari JWT claims
-3. Cek `distributor_applications`: authorized? `can_generate=true`?
-4. Cek counter vs limit (misal annual_created < max_annual_licenses)
-5. Jika lolos, generate license seperti Flow 1
-6. Increment counter di `distributor_applications` (dalam transaction yang sama)
-7. Kirim email ke customer dengan .lic file attachment
-
-### Flow 4: Key Pair Generation
-1. `Standard.Licensing.Security.Cryptography.KeyGenerator.Create()`
-2. `GenerateKeyPair()` → `ToEncryptedPrivateKeyString(passphrase)` + `ToPublicKeyString()`
-3. Simpan ke `applications` table (passphrase dienkripsi AES dengan master key)
+### Flow 3: Distributor Download License
+1. Distributor akses `GET /api/licenses/{id}/download`
+2. Return file `.lic` (dari `license_content` column)
+3. **Current gap**: endpoint belum ada
 
 ---
 
 ## NuGet Packages
-- **WebAPI**: Microsoft.AspNetCore.OpenApi, Swashbuckle.AspNetCore, Microsoft.AspNetCore.Authentication.JwtBearer, Standard.Licensing, MailKit
-- **Infrastructure**: Microsoft.EntityFrameworkCore.SqlServer, Microsoft.EntityFrameworkCore.Design, Standard.Licensing, BCrypt.Net-Next, MailKit
-- **Core**: (no external dependencies)
 
-## Auth & Configuration
-- JWT Bearer (BCrypt password hashing, refresh tokens)
-- Role-based: "Owner" / "Distributor" policies
-- SQL Server database `BioLicensePortalDb`
-- **Key Storage**: Private key passphrase dienkripsi AES dengan master key dari `appsettings.json`, disimpan di DB
-- **Registration**: Hanya Owner yang bisa membuat akun distributor (tidak ada self-registration)
-- **License Delivery**: API download endpoint + kirim email otomatis ke distributor/customer (SMTP via appsettings)
+### Domain
+- (no external dependencies)
 
----
+### Application
+- AutoMapper 16.1.1
 
-## Implementation Phases
+### Infrastructure
+- Microsoft.EntityFrameworkCore.SqlServer 9.0
+- BCrypt.Net-Next 4.1.0
+- System.IdentityModel.Tokens.Jwt 8.0
 
-### Phase 1: Foundation
-1. Buat `Core` class library (entities, enums, interfaces, DTOs)
-2. Buat `Infrastructure` class library (DbContext, configurations, repositories)
-3. Initial EF Core migration
+### WebAPI
+- Microsoft.AspNetCore.OpenApi 9.0.15
+- Microsoft.AspNetCore.Authentication.JwtBearer 9.0
+- Microsoft.EntityFrameworkCore.SqlServer 9.0
+- Microsoft.EntityFrameworkCore.Design 9.0
+- AutoMapper 16.1.1
+- AutoMapper.Extensions.Microsoft.DependencyInjection 12.0.1
+- DotNetEnv 3.2.0
 
-### Phase 2: Authentication
-4. JwtTokenService, PasswordHasher, CurrentUserService
-5. AuthService (login, refresh, change-password, seed-owner)
-6. AuthEndpoints + JWT middleware
-
-### Phase 3: Application & Feature Management
-7. ApplicationService + FeatureService
-8. ApplicationEndpoints + FeatureEndpoints (Owner only)
-
-### Phase 4: Distributor Management
-9. DistributorService (CRUD + assign app + limits)
-10. DistributorEndpoints (Owner only)
-
-### Phase 5: License Generation (Core Feature)
-11. LicenseGeneratorService (wraps Standard.Licensing)
-12. Limit enforcement untuk distributor
-13. LicenseEndpoints (generate, list, download, revoke, assign)
-
-### Phase 6: Email Delivery
-14. EmailService (SMTP wrapper - kirim .lic file sebagai attachment)
-15. Integrate ke license generation: setelah generate → email ke distributor/customer
-
-### Phase 7: Dashboard & Audit
-16. AuditService
-17. DashboardEndpoints
-18. ExceptionMiddleware + AuditMiddleware
+### Still needed
+- **Standard.Licensing** (Infrastructure) - untuk generate .lic file
+- **MailKit** (Infrastructure) - untuk email delivery
 
 ---
 
-## Referensi File Existing
-- `BLE-Tracking/.../LicenseGenerator/Program.cs` → Pola Standard.Licensing (key gen line 34-51, license creation line 53-141)
-- `BLE-Tracking/.../LicenseService.cs` → Pola validasi license (activation line 65-151)
-- `BLE-Tracking/.../Enum.cs` → LicenseType/LicenseTier enum values (line 40-54)
-- `BLE-Tracking/.../FeatureDefinition.cs` → Feature definitions (line 10-127)
+## Configuration (appsettings.json)
+```json
+{
+  "ConnectionStrings": {
+    "DefaultConnection": "Server=...;Database=bio_license_portal;..."
+  },
+  "Jwt": {
+    "Key": "...",
+    "Issuer": "biolicense-portal",
+    "Audience": "biolicense-portal-users"
+  }
+}
+```
+
+---
+
+## Implementation Progress
+
+### Phase 1: Foundation — DONE
+- [x] Project structure (4-layer clean architecture)
+- [x] Domain entities & enums
+- [x] Application interfaces & DTOs
+- [x] Infrastructure DbContext + 3 migrations
+- [x] Repositories (User, Application, License)
+- [x] API response wrapper + custom exceptions + message constants
+
+### Phase 2: Authentication — 80%
+- [x] JwtTokenService (HMAC-SHA256, refresh token)
+- [x] PasswordHasher (BCrypt)
+- [x] AuthService (login, refresh token service, seed owner/distributor)
+- [x] AuthController (login, seed-owner, seed-distributor)
+- [x] JWT Bearer middleware
+- [ ] **POST /auth/refresh** (service ada, controller endpoint belum)
+- [ ] **POST /auth/logout**
+- [ ] **POST /auth/change-password**
+
+### Phase 3: Application Management — 90%
+- [x] ApplicationService (CRUD + auto keypair generation + TierConfigs)
+- [x] FeatureService (add/update/delete per application)
+- [x] ApplicationController (full CRUD + features)
+- [x] KeyGeneratorService (RSA-2048 + AES encryption)
+- [ ] **POST /{id}/generate-keypair** (regenerate)
+- [ ] **GET /{id}/public-key**
+
+### Phase 4: Ticketing Module — 70%
+- [x] LicenseService.CreateRequestAsync (Distributor buat request)
+- [x] LicenseService.GetMyRequestsAsync (list own requests)
+- [x] LicenseService.GetPendingRequestsAsync (list pending)
+- [x] LicenseService.RejectRequestAsync (reject + reason)
+- [x] LicenseController (create, my, pending, reject endpoints)
+- [ ] **ApproveRequest harus generate .lic file** (P0 - critical)
+
+### Phase 5: Licensing Engine — NOT STARTED
+- [ ] Install Standard.Licensing NuGet
+- [ ] Implement LicenseGeneratorService (wrap Standard.Licensing signing)
+- [ ] Integrate ke ApproveRequest: generate .lic → create LicenseRecord → link ke request
+- [ ] **GET /api/licenses** (list all licenses)
+- [ ] **GET /api/licenses/{id}** (detail)
+- [ ] **GET /api/licenses/{id}/download** (download .lic file)
+- [ ] **POST /api/licenses/{id}/revoke** (revoke)
+
+### Phase 6: Email Delivery — NOT STARTED
+- [ ] EmailService (SMTP via MailKit)
+- [ ] Kirim .lic sebagai email attachment saat license di-generate
+- [ ] Email notifikasi ke distributor saat request di-approve/reject
+
+### Phase 7: Dashboard & Audit — NOT STARTED
+- [ ] AuditService (write to audit_logs table)
+- [ ] AuditMiddleware (automatic request logging)
+- [ ] Dashboard endpoints (stats, per-app stats)
+
+---
+
+## Referensi File Existing (BLE-Tracking)
+- `Services.API/LicenseGenerator/Program.cs` → Standard.Licensing API (key gen, license signing)
+- `Shared/BusinessLogic.Services/Implementation/LicenseService.cs` → License validation pattern
+- `Shared/Shared.Contracts/Enum.cs` → LicenseType/LicenseTier enum values
+- `Shared/BusinessLogic.Services/Feature/FeatureDefinition.cs` → Feature definitions
 
 ## Verification
 - Build: `dotnet build`
 - Run: `dotnet run --project src/WebAPI`
-- Test flow: seed owner → login → create application → generate keypair → add features → create distributor → assign app to distributor → generate license → download .lic → verify .lic content
-- Test .lic compatibility: license yang di-generate harus bisa di-validate oleh LicenseChecker/LicenseService BLE-Tracking yang sudah ada
+- Test flow: seed owner → login → create application → add features → create distributor → submit request → approve (generate .lic) → download .lic → verify .lic content
+- Test .lic compatibility: license harus bisa di-validate oleh LicenseChecker/LicenseService BLE-Tracking yang sudah ada
