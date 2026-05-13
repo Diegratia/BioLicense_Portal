@@ -70,11 +70,13 @@ namespace BioLicense_Portal.Infrastructure.Data
                 
                 entity.HasOne(tf => tf.Tier)
                     .WithMany(t => t.TierFeatures)
-                    .HasForeignKey(tf => tf.TierId);
+                    .HasForeignKey(tf => tf.TierId)
+                    .OnDelete(DeleteBehavior.NoAction);
                 
                 entity.HasOne(tf => tf.Feature)
                     .WithMany(f => f.TierFeatures)
-                    .HasForeignKey(tf => tf.FeatureId);
+                    .HasForeignKey(tf => tf.FeatureId)
+                    .OnDelete(DeleteBehavior.NoAction);
             });
 
             modelBuilder.Entity<ApplicationTier>(entity => {

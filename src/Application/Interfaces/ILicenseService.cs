@@ -26,7 +26,7 @@ namespace BioLicense_Portal.Application.Interfaces
         BioLicense_Portal.Domain.Enums.LicenseType LicenseType,
         BioLicense_Portal.Domain.Enums.LicenseTier LicenseTier,
         DateTime? ExpiryDate,
-        List<string>? SelectedFeatures,
+        List<Guid>? SelectedFeatureIds,
         Dictionary<string, object>? Parameters,
         string? Notes,
         Guid? RequesterUserId = null

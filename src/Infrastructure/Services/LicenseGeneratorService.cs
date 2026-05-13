@@ -1,63 +1,55 @@
 using BioLicense_Portal.Application.Interfaces;
 using BioLicense_Portal.Domain.Entities;
+using DomainEnums = BioLicense_Portal.Domain.Enums;
 using Standard.Licensing;
-using Standard.Licensing.Validation;
 using System;
 using System.Collections.Generic;
-using System.Text.Json;
+using System.Linq;
 
 namespace BioLicense_Portal.Infrastructure.Services
 {
     public class LicenseGeneratorService : ILicenseGeneratorService
     {
-        public string GenerateLicense(BioLicense_Portal.Domain.Entities.Application app, LicenseRequest request, string privateKey)
+        public string GenerateLicense(
+            Domain.Entities.Application app, 
+            string customerName,
+            string machineId,
+            DomainEnums.LicenseType type,
+            DomainEnums.LicenseTier tier,
+            DateTime expiryDate,
+            List<string> features,
+            Dictionary<string, object> parameters,
+            string privateKey)
         {
-            var licenseType = request.LicenseType == Domain.Enums.LicenseType.Trial 
+            var licenseType = type == DomainEnums.LicenseType.Trial 
                 ? Standard.Licensing.LicenseType.Trial 
                 : Standard.Licensing.LicenseType.Standard;
 
-            var builder = Standard.Licensing.License.New()
+            var builder = License.New()
                 .WithUniqueIdentifier(Guid.NewGuid())
                 .As(licenseType)
-                .ExpiresAt(request.ExpiryDate ?? DateTime.UtcNow.AddYears(1))
-                .WithAdditionalAttributes(ParseParameters(request.LicenseParameters))
+                .ExpiresAt(expiryDate)
                 .WithAdditionalAttributes(new Dictionary<string, string>
                 {
-                    { "MachineID", request.MachineId },
-                    { "LicenseTier", request.LicenseTier.ToString() },
-                    { "Features", request.Features ?? "" },
+                    { "MachineID", machineId },
+                    { "LicenseTier", tier.ToString() },
+                    { "LicenseType", type.ToString() },
+                    { "Features", string.Join(",", features) },
                     { "ApplicationSlug", app.Slug }
                 })
-                .LicensedTo(request.CustomerName, request.CustomerEmail ?? "");
-            
-            // Gunakan string.Empty daripada null untuk menghindari NullReferenceException di dalam library
-            var license = builder.CreateAndSignWithPrivateKey(privateKey, string.Empty);
+                .LicensedTo(customerName, "");
 
-            return license.ToString();
-        }
-
-        private Dictionary<string, string> ParseParameters(string? json)
-        {
-            var result = new Dictionary<string, string>();
-            if (string.IsNullOrEmpty(json)) return result;
-
-            try
+            // Add custom parameters to attributes
+            if (parameters != null)
             {
-                var dict = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
-                if (dict != null)
+                foreach (var param in parameters)
                 {
-                    foreach (var kvp in dict)
-                    {
-                        result.Add(kvp.Key, kvp.Value?.ToString() ?? "");
-                    }
+                    builder.WithAdditionalAttributes(new Dictionary<string, string> { { param.Key, param.Value?.ToString() ?? "" } });
                 }
             }
-            catch
-            {
-                // Ignore invalid JSON
-            }
 
-            return result;
+            var license = builder.CreateAndSignWithPrivateKey(privateKey, string.Empty);
+            return license.ToString();
         }
     }
 }

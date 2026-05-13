@@ -82,10 +82,5 @@ namespace BioLicense_Portal.Infrastructure.Repositories
             _context.Licenses.Update(record);
             await _context.SaveChangesAsync();
         }
-
-        public async Task<User?> GetUserByIdAsync(Guid id)
-        {
-            return await _context.Users.FindAsync(id);
-        }
     }
 }

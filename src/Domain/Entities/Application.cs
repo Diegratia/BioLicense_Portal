@@ -35,7 +35,7 @@ namespace BioLicense_Portal.Domain.Entities
         [Column("description")]
         public string? Description { get; set; }
         [Column("category")]
-        public string Category { get; set; } = "core"; // core / module
+        public FeatureCategory Category { get; set; } = FeatureCategory.Core;
         [Column("is_active")]
         public bool IsActive { get; set; } = true;
 

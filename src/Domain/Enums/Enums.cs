@@ -51,4 +51,10 @@ namespace BioLicense_Portal.Domain.Enums
         Rejected,
         Completed
     }
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public enum FeatureCategory
+    {
+        Core,
+        Module
+    }
 }

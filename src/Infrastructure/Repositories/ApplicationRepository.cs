@@ -75,6 +75,8 @@ namespace BioLicense_Portal.Infrastructure.Repositories
             return await _context.Applications
                 .Include(a => a.Features)
                 .Include(a => a.Tiers)
+                    .ThenInclude(t => t.TierFeatures)
+                        .ThenInclude(tf => tf.Feature)
                 .ToListAsync();
         }
 
@@ -93,6 +95,8 @@ namespace BioLicense_Portal.Infrastructure.Repositories
             return await _context.Applications
                 .Include(a => a.Features)
                 .Include(a => a.Tiers)
+                    .ThenInclude(t => t.TierFeatures)
+                        .ThenInclude(tf => tf.Feature)
                 .FirstOrDefaultAsync(a => a.Slug == slug);
         }
 

@@ -99,9 +99,8 @@ namespace BioLicense_Portal.Infrastructure.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("application_id");
 
-                    b.Property<string>("Category")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)")
+                    b.Property<int>("Category")
+                        .HasColumnType("int")
                         .HasColumnName("category");
 
                     b.Property<DateTime>("CreatedAt")
@@ -567,24 +566,30 @@ namespace BioLicense_Portal.Infrastructure.Migrations
 
                     b.Property<string>("Email")
                         .IsRequired()
-                        .HasColumnType("nvarchar(450)");
+                        .HasColumnType("nvarchar(450)")
+                        .HasColumnName("email");
 
                     b.Property<string>("FullName")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("full_name");
 
                     b.Property<DateTime?>("LastLoginAt")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("datetime2")
+                        .HasColumnName("last_login_at");
 
                     b.Property<string>("PasswordHash")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("password_hash");
 
                     b.Property<int>("Role")
-                        .HasColumnType("int");
+                        .HasColumnType("int")
+                        .HasColumnName("role");
 
                     b.Property<int>("Status")
-                        .HasColumnType("int");
+                        .HasColumnType("int")
+                        .HasColumnName("status");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2")
@@ -597,7 +602,8 @@ namespace BioLicense_Portal.Infrastructure.Migrations
 
                     b.Property<string>("Username")
                         .IsRequired()
-                        .HasColumnType("nvarchar(450)");
+                        .HasColumnType("nvarchar(450)")
+                        .HasColumnName("username");
 
                     b.HasKey("Id");
 
@@ -637,13 +643,13 @@ namespace BioLicense_Portal.Infrastructure.Migrations
                     b.HasOne("BioLicense_Portal.Domain.Entities.ApplicationFeature", "Feature")
                         .WithMany("TierFeatures")
                         .HasForeignKey("FeatureId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired();
 
                     b.HasOne("BioLicense_Portal.Domain.Entities.ApplicationTier", "Tier")
                         .WithMany("TierFeatures")
                         .HasForeignKey("TierId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired();
 
                     b.Navigation("Feature");

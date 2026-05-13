@@ -8,6 +8,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using AppEntity = BioLicense_Portal.Domain.Entities.Application;
+using BioLicense_Portal.Application.Exceptions;
 using BioLicense_Portal.Domain.Enums;
 
 namespace BioLicense_Portal.Infrastructure.Services
@@ -16,19 +17,22 @@ namespace BioLicense_Portal.Infrastructure.Services
     {
         private readonly LicenseRepository _licenseRepository;
         private readonly ApplicationRepository _appRepository;
+        private readonly UserRepository _userRepository;
         private readonly ILicenseGeneratorService _licenseGenerator;
         private readonly IKeyGeneratorService _keyGenerator;
         private readonly IEmailService _emailService;
 
         public LicenseService(
-            LicenseRepository licenseRepository, 
+            LicenseRepository licenseRepository,
             ApplicationRepository appRepository,
+            UserRepository userRepository,
             ILicenseGeneratorService licenseGenerator,
             IKeyGeneratorService keyGenerator,
             IEmailService emailService)
         {
             _licenseRepository = licenseRepository;
             _appRepository = appRepository;
+            _userRepository = userRepository;
             _licenseGenerator = licenseGenerator;
             _keyGenerator = keyGenerator;
             _emailService = emailService;
@@ -39,7 +43,8 @@ namespace BioLicense_Portal.Infrastructure.Services
             var app = await _appRepository.GetByIdAsync(request.ApplicationId);
             if (app == null) throw new KeyNotFoundException("Application not found.");
 
-            var (finalFeatures, finalParameters) = await ResolveTierConfigsAsync(app, request.LicenseTier, request.SelectedFeatures, request.Parameters);
+            ValidateTierRequest(request.LicenseTier, app, request.SelectedFeatureIds, request.Parameters);
+            var (finalFeatures, finalParameters) = ResolveTierConfigs(app, request.LicenseTier, request.SelectedFeatureIds, request.Parameters);
 
             var licenseRequest = new LicenseRequest
             {
@@ -79,50 +84,32 @@ namespace BioLicense_Portal.Infrastructure.Services
             };
         }
 
-        private class TierConfigItem
-        {
-            public List<string>? Features { get; set; }
-            public Dictionary<string, object>? Parameters { get; set; }
-        }
-
         public async Task<LicenseResponseDto> CreateLicenseDirectAsync(Guid ownerId, CreateLicenseRequestDto request)
         {
             var app = await _appRepository.GetByIdAsync(request.ApplicationId);
             if (app == null) throw new KeyNotFoundException("Application not found.");
 
-            var (finalFeatures, finalParameters) = await ResolveTierConfigsAsync(app, request.LicenseTier, request.SelectedFeatures, request.Parameters);
+            ValidateTierRequest(request.LicenseTier, app, request.SelectedFeatureIds, request.Parameters);
+            var (finalFeatures, finalParameters) = ResolveTierConfigs(app, request.LicenseTier, request.SelectedFeatureIds, request.Parameters);
 
             // 1. Pre-generate IDs to avoid double updates
             var requestId = Guid.NewGuid();
             var licenseId = Guid.NewGuid();
 
-            var licenseRequest = new LicenseRequest
-            {
-                Id = requestId,
-                ApplicationId = request.ApplicationId,
-                RequesterUserId = request.RequesterUserId ?? ownerId,
-                CustomerName = request.CustomerName,
-                CustomerEmail = request.CustomerEmail,
-                MachineId = request.DeviceId,
-                LicenseType = request.LicenseType,
-                LicenseTier = request.LicenseTier,
-                ExpiryDate = CalculateExpiryDate(request.LicenseType, request.ExpiryDate),
-                Features = string.Join(",", finalFeatures),
-                LicenseParameters = JsonSerializer.Serialize(finalParameters),
-                RequestStatus = BioLicense_Portal.Domain.Enums.LicenseRequestStatus.Approved,
-                Notes = request.Notes,
-                RequestedAt = DateTime.UtcNow,
-                ApproverUserId = ownerId,
-                ProcessedAt = DateTime.UtcNow,
-                LicenseRecordId = licenseId // Link it upfront
-            };
+            // 1. Directly Generate and save the LicenseRecord
+            var licenseRecord = await GenerateLicenseInternalAsync(
+                app,
+                request.CustomerName,
+                request.CustomerEmail,
+                request.DeviceId,
+                request.LicenseType,
+                request.LicenseTier,
+                CalculateExpiryDate(request.LicenseType, request.ExpiryDate),
+                finalFeatures,
+                finalParameters,
+                licenseId);
 
-            await _licenseRepository.AddRequestAsync(licenseRequest);
-
-            // 2. Generate and save license with pre-generated ID
-            var licenseRecord = await GenerateAndRecordLicenseAsync(licenseRequest, app, ownerId, licenseId);
-            
-            // 3. Send Email (licenseRecord now has Application attached in-memory)
+            // 2. Send Email
             await SendLicenseEmailAsync(licenseRecord); 
 
             return MapToLicenseDto(licenseRecord);
@@ -149,7 +136,25 @@ namespace BioLicense_Portal.Infrastructure.Services
             if (app == null) throw new KeyNotFoundException("Application not found.");
 
             var licenseId = Guid.NewGuid();
-            var licenseRecord = await GenerateAndRecordLicenseAsync(request, app, engineerId, licenseId);
+            
+            // Parse parameters from request
+            var parameters = !string.IsNullOrEmpty(request.LicenseParameters) 
+                ? JsonSerializer.Deserialize<Dictionary<string, object>>(request.LicenseParameters) 
+                : new Dictionary<string, object>();
+                
+            var featuresList = request.Features?.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList() ?? new List<string>();
+
+            var licenseRecord = await GenerateLicenseInternalAsync(
+                app,
+                request.CustomerName,
+                request.CustomerEmail,
+                request.MachineId,
+                request.LicenseType,
+                request.LicenseTier,
+                request.ExpiryDate ?? DateTime.UtcNow.AddYears(1),
+                featuresList,
+                parameters ?? new Dictionary<string, object>(),
+                licenseId);
 
             // Update request status
             request.RequestStatus = BioLicense_Portal.Domain.Enums.LicenseRequestStatus.Completed;
@@ -165,16 +170,35 @@ namespace BioLicense_Portal.Infrastructure.Services
             return true;
         }
 
-        private async Task<LicenseRecord> GenerateAndRecordLicenseAsync(LicenseRequest request, AppEntity app, Guid actorId, Guid? preGeneratedId = null)
+        private async Task<LicenseRecord> GenerateLicenseInternalAsync(
+            AppEntity app,
+            string customerName,
+            string? customerEmail,
+            string machineId,
+            LicenseType type,
+            LicenseTier tier,
+            DateTime expiryDate,
+            List<string> features,
+            Dictionary<string, object> parameters,
+            Guid? preGeneratedId = null)
         {
             if (string.IsNullOrEmpty(app.PrivateKeyEncrypted))
                 throw new InvalidOperationException("Application private key is missing.");
 
-            // 1. Decrypt private key (Master Secret is handled internally by KeyGeneratorService)
+            // 1. Decrypt private key
             var privateKey = _keyGenerator.DecryptPrivateKey(app.PrivateKeyEncrypted);
 
-            // 2. Generate license string using Standard.Licensing
-            var licenseContent = _licenseGenerator.GenerateLicense(app, request, privateKey);
+            // 2. Generate license string
+            var licenseContent = _licenseGenerator.GenerateLicense(
+                app, 
+                customerName, 
+                machineId, 
+                type, 
+                tier, 
+                expiryDate, 
+                features, 
+                parameters, 
+                privateKey);
 
             // 3. Create LicenseRecord
             var licenseRecord = new LicenseRecord
@@ -182,61 +206,96 @@ namespace BioLicense_Portal.Infrastructure.Services
                 Id = preGeneratedId ?? Guid.NewGuid(),
                 Licenseid = Guid.NewGuid(),
                 ApplicationId = app.Id,
-                Application = app, // Attach in-memory to avoid reload
-                CustomerName = request.CustomerName,
-                CustomerEmail = request.CustomerEmail,
-                MachineId = request.MachineId,
-                LicenseType = request.LicenseType,
-                LicenseTier = request.LicenseTier,
-                LicenseParameters = request.LicenseParameters,
-                Features = request.Features,
+                Application = app,
+                CustomerName = customerName,
+                CustomerEmail = customerEmail,
+                MachineId = machineId,
+                LicenseType = type,
+                LicenseTier = tier,
+                LicenseParameters = JsonSerializer.Serialize(parameters),
+                Features = string.Join(",", features),
                 LicenseContent = licenseContent,
                 IssuedAt = DateTime.UtcNow,
-                ExpiredAt = request.ExpiryDate ?? DateTime.UtcNow.AddYears(1),
-                GeneratedByUserId = actorId,
-                AssignedToUserId = request.RequesterUserId != actorId ? request.RequesterUserId : null,
-                Status = Domain.Enums.LicenseStatus.Active,
-                CreatedAt = DateTime.UtcNow
+                ExpiredAt = expiryDate
             };
 
             await _licenseRepository.AddLicenseRecordAsync(licenseRecord);
             return licenseRecord;
         }
 
-        private async Task<(List<string> Features, Dictionary<string, object> Parameters)> ResolveTierConfigsAsync(
-            AppEntity app, 
-            LicenseTier tier, 
-            List<string>? selectedFeatures, 
-            Dictionary<string, object>? parameters)
+        private void ValidateTierRequest(LicenseTier tier, AppEntity app, List<Guid>? selectedFeatureIds, Dictionary<string, object>? parameters)
         {
-            var finalFeatures = selectedFeatures ?? new List<string>();
-            var finalParameters = parameters ?? new Dictionary<string, object>();
-
-            if (tier != LicenseTier.Custom && app.Tiers != null)
+            if (tier == LicenseTier.Custom)
             {
-                var config = app.Tiers.FirstOrDefault(t => t.Tier == tier);
-                if (config != null)
+                // Custom tier wajib isi sendiri
+                if (selectedFeatureIds == null || selectedFeatureIds.Count == 0)
+                    throw new BusinessException("Custom tier requires SelectedFeatureIds.");
+
+                // Wajib ambil dari list feature application tersebut
+                foreach (var fId in selectedFeatureIds)
                 {
-                    if (config.TierFeatures != null && config.TierFeatures.Any())
+                    if (!app.Features.Any(f => f.Id == fId))
                     {
-                        finalFeatures = config.TierFeatures
-                            .Where(tf => tf.Feature != null)
-                            .Select(tf => tf.Feature!.FeatureKey)
-                            .ToList();
-                    }
-                    if (!string.IsNullOrEmpty(config.Parameters))
-                    {
-                        try
-                        {
-                            var parsedParams = JsonSerializer.Deserialize<Dictionary<string, object>>(config.Parameters);
-                            if (parsedParams != null) finalParameters = parsedParams;
-                        }
-                        catch { /* Ignore invalid JSON */ }
+                        throw new BusinessException($"Feature ID '{fId}' is not registered for application '{app.Name}'.");
                     }
                 }
             }
+            else
+            {
+                // Non-Custom tier: harus ada di config
+                var config = app.Tiers?.FirstOrDefault(t => t.Tier == tier);
+                if (config == null)
+                    throw new BusinessException($"Tier {tier} is not configured for application '{app.Name}'.");
+            }
+        }
 
-            return (finalFeatures, finalParameters);
+        private (List<string> Features, Dictionary<string, object> Parameters) ResolveTierConfigs(
+            AppEntity app,
+            LicenseTier tier,
+            List<Guid>? selectedFeatureIds,
+            Dictionary<string, object>? parameters)
+        {
+            // Non-Custom: 100% dari tier config, user input diabaikan
+            if (tier != LicenseTier.Custom && app.Tiers != null)
+            {
+                var config = app.Tiers.FirstOrDefault(t => t.Tier == tier);
+                if (config == null)
+                    return (new List<string>(), new Dictionary<string, object>());
+
+                var features = (config.TierFeatures != null && config.TierFeatures.Any())
+                    ? config.TierFeatures
+                        .Where(tf => tf.Feature != null)
+                        .Select(tf => $"{tf.Feature!.Category.ToString().ToLowerInvariant()}.{tf.Feature!.FeatureKey}")
+                        .ToList()
+                    : new List<string>();
+
+                var parms = new Dictionary<string, object>();
+                if (!string.IsNullOrEmpty(config.Parameters))
+                {
+                    try
+                    {
+                        var parsed = JsonSerializer.Deserialize<Dictionary<string, object>>(config.Parameters);
+                        if (parsed != null) parms = parsed;
+                    }
+                    catch { /* ignore */ }
+                }
+
+                return (features, parms);
+            }
+
+            // Custom: dari user input
+            var customFeatures = new List<string>();
+            if (selectedFeatureIds != null)
+            {
+                foreach (var fId in selectedFeatureIds)
+                {
+                    // Pasti ada karena sudah divalidasi di ValidateTierRequest
+                    var feature = app.Features.First(f => f.Id == fId);
+                    customFeatures.Add($"{feature.Category.ToString().ToLowerInvariant()}.{feature.FeatureKey}");
+                }
+            }
+
+            return (customFeatures, parameters ?? new Dictionary<string, object>());
         }
 
         private async Task SendLicenseEmailAsync(LicenseRecord license)
@@ -292,7 +351,7 @@ namespace BioLicense_Portal.Infrastructure.Services
                 if (license.AssignedToUserId.HasValue)
                 {
                     try {
-                        var distributor = await _licenseRepository.GetUserByIdAsync(license.AssignedToUserId.Value);
+                        var distributor = await _userRepository.GetByIdAsync(license.AssignedToUserId.Value);
                         if (distributor != null && !string.IsNullOrEmpty(distributor.Email))
                         {
                             var distBody = baseBody.Replace($"Hi {customerName},", $"Hi {distributor.FullName},")
