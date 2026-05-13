@@ -4,6 +4,7 @@ using BioLicense_Portal.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace BioLicense_Portal.Infrastructure.Migrations
 {
     [DbContext(typeof(BioLicenseDbContext))]
-    partial class BioLicenseDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260512071345_RemoveKeyPassphrase")]
+    partial class RemoveKeyPassphrase
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -67,6 +70,10 @@ namespace BioLicense_Portal.Infrastructure.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int")
                         .HasColumnName("status");
+
+                    b.Property<string>("TierConfigs")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("tier_configs");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2")
@@ -146,72 +153,6 @@ namespace BioLicense_Portal.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("application_features", (string)null);
-                });
-
-            modelBuilder.Entity("BioLicense_Portal.Domain.Entities.ApplicationTier", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier")
-                        .HasColumnName("id");
-
-                    b.Property<Guid>("ApplicationId")
-                        .HasColumnType("uniqueidentifier")
-                        .HasColumnName("application_id");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)")
-                        .HasColumnName("created_by");
-
-                    b.Property<string>("Description")
-                        .HasColumnType("nvarchar(max)")
-                        .HasColumnName("description");
-
-                    b.Property<string>("Parameters")
-                        .HasColumnType("nvarchar(max)")
-                        .HasColumnName("parameters");
-
-                    b.Property<int>("Tier")
-                        .HasColumnType("int")
-                        .HasColumnName("tier");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("datetime2")
-                        .HasColumnName("updated_at");
-
-                    b.Property<string>("UpdatedBy")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)")
-                        .HasColumnName("updated_by");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ApplicationId", "Tier")
-                        .IsUnique();
-
-                    b.ToTable("application_tiers", (string)null);
-                });
-
-            modelBuilder.Entity("BioLicense_Portal.Domain.Entities.ApplicationTierFeature", b =>
-                {
-                    b.Property<Guid>("TierId")
-                        .HasColumnType("uniqueidentifier")
-                        .HasColumnName("tier_id");
-
-                    b.Property<Guid>("FeatureId")
-                        .HasColumnType("uniqueidentifier")
-                        .HasColumnName("feature_id");
-
-                    b.HasKey("TierId", "FeatureId");
-
-                    b.HasIndex("FeatureId");
-
-                    b.ToTable("application_tier_features", (string)null);
                 });
 
             modelBuilder.Entity("BioLicense_Portal.Domain.Entities.AuditLog", b =>
@@ -621,36 +562,6 @@ namespace BioLicense_Portal.Infrastructure.Migrations
                     b.Navigation("Application");
                 });
 
-            modelBuilder.Entity("BioLicense_Portal.Domain.Entities.ApplicationTier", b =>
-                {
-                    b.HasOne("BioLicense_Portal.Domain.Entities.Application", "Application")
-                        .WithMany("Tiers")
-                        .HasForeignKey("ApplicationId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Application");
-                });
-
-            modelBuilder.Entity("BioLicense_Portal.Domain.Entities.ApplicationTierFeature", b =>
-                {
-                    b.HasOne("BioLicense_Portal.Domain.Entities.ApplicationFeature", "Feature")
-                        .WithMany("TierFeatures")
-                        .HasForeignKey("FeatureId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("BioLicense_Portal.Domain.Entities.ApplicationTier", "Tier")
-                        .WithMany("TierFeatures")
-                        .HasForeignKey("TierId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Feature");
-
-                    b.Navigation("Tier");
-                });
-
             modelBuilder.Entity("BioLicense_Portal.Domain.Entities.LicenseRecord", b =>
                 {
                     b.HasOne("BioLicense_Portal.Domain.Entities.Application", "Application")
@@ -720,18 +631,6 @@ namespace BioLicense_Portal.Infrastructure.Migrations
             modelBuilder.Entity("BioLicense_Portal.Domain.Entities.Application", b =>
                 {
                     b.Navigation("Features");
-
-                    b.Navigation("Tiers");
-                });
-
-            modelBuilder.Entity("BioLicense_Portal.Domain.Entities.ApplicationFeature", b =>
-                {
-                    b.Navigation("TierFeatures");
-                });
-
-            modelBuilder.Entity("BioLicense_Portal.Domain.Entities.ApplicationTier", b =>
-                {
-                    b.Navigation("TierFeatures");
                 });
 #pragma warning restore 612, 618
         }

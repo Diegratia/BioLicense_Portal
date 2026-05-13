@@ -18,12 +18,9 @@ namespace BioLicense_Portal.Domain.Entities
         public string? PrivateKeyEncrypted { get; set; }
         [Column("public_key")]
         public string? PublicKey { get; set; }
-        [Column("key_passphrase")]
-        public string? KeyPassphrase { get; set; }
         [Column("status")]
         public int Status { get; set; } = 1;
-        [Column("tier_configs")]
-        public string? TierConfigs { get; set; } // Stores JSON configuration for each LicenseTier
+        public ICollection<ApplicationTier> Tiers { get; set; } = new List<ApplicationTier>();
         public ICollection<ApplicationFeature> Features { get; set; } = new List<ApplicationFeature>();
     }
 
@@ -43,5 +40,6 @@ namespace BioLicense_Portal.Domain.Entities
         public bool IsActive { get; set; } = true;
 
         public Application? Application { get; set; }
+        public ICollection<ApplicationTierFeature> TierFeatures { get; set; } = new List<ApplicationTierFeature>();
     }
 }

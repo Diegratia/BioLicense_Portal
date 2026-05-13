@@ -85,5 +85,31 @@ namespace BioLicense_Portal.WebAPI.Controllers
             
             return Ok(ApiResponse.Success(Messages.General.Success));
         }
+
+        // Tiers
+        [HttpPost("{id}/tiers")]
+        public async Task<IActionResult> AddTier(Guid id, [FromBody] CreateTierRequestDto request)
+        {
+            await _appService.AddTierAsync(id, request);
+            return Ok(ApiResponse.Success(Messages.General.Success));
+        }
+
+        [HttpPut("tiers/{tierId}")]
+        public async Task<IActionResult> UpdateTier(Guid tierId, [FromBody] UpdateTierRequestDto request)
+        {
+            var success = await _appService.UpdateTierAsync(tierId, request);
+            if (!success) return NotFound(ApiResponse.NotFound(Messages.General.NotFound));
+            
+            return Ok(ApiResponse.Success(Messages.General.Success));
+        }
+
+        [HttpDelete("tiers/{tierId}")]
+        public async Task<IActionResult> DeleteTier(Guid tierId)
+        {
+            var success = await _appService.DeleteTierAsync(tierId);
+            if (!success) return NotFound(ApiResponse.NotFound(Messages.General.NotFound));
+            
+            return Ok(ApiResponse.Success(Messages.General.Success));
+        }
     }
 }

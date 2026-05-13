@@ -23,14 +23,12 @@ namespace BioLicense_Portal.Infrastructure.Services
 
         public async Task<IEnumerable<AppResponseDto>> GetAllAsync(string? search = null, int? status = null)
         {
-            var results = await _repository.GetListAsync(search, status);
-            return results.Select(MapToDtoWithJson);
+            return await _repository.GetListAsync(search, status);
         }
 
         public async Task<AppResponseDto?> GetByIdAsync(Guid id)
         {
-            var result = await _repository.GetProjectedByIdAsync(id);
-            return result != null ? MapToDtoWithJson(result) : null;
+            return await _repository.GetProjectedByIdAsync(id);
         }
 
         public async Task<AppResponseDto> CreateAsync(CreateAppRequestDto request)
@@ -38,8 +36,7 @@ namespace BioLicense_Portal.Infrastructure.Services
             var existing = await _repository.GetBySlugAsync(request.Slug);
             if (existing != null) throw new InvalidOperationException("Application with this slug already exists.");
 
-            var (pub, priv) = _keyGenerator.GenerateKeyPair();
-            var encryptedPriv = _keyGenerator.EncryptPrivateKey(priv, request.KeyPassphrase);
+            var (pub, encryptedPriv) = _keyGenerator.GenerateKeyPair();
 
             var app = new AppEntity
             {
@@ -50,14 +47,12 @@ namespace BioLicense_Portal.Infrastructure.Services
                 Description = request.Description,
                 PublicKey = pub,
                 PrivateKeyEncrypted = encryptedPriv,
-                KeyPassphrase = request.KeyPassphrase,
                 Status = 1,
                 CreatedAt = DateTime.UtcNow
             };
 
             await _repository.AddAsync(app);
             
-            // Manual mapping for single response
             return new AppResponseDto(
                 app.Id, app.Name, app.Slug, app.ApplicationType, 
                 app.Description, app.PublicKey, app.Status, null, new List<FeatureResponseDto>());
@@ -71,7 +66,6 @@ namespace BioLicense_Portal.Infrastructure.Services
             app.Name = request.Name;
             app.Description = request.Description;
             app.Status = request.Status;
-            app.TierConfigs = request.TierConfigs != null ? JsonSerializer.Serialize(request.TierConfigs) : null;
             app.UpdatedAt = DateTime.UtcNow;
 
             await _repository.UpdateAsync(app);
@@ -131,22 +125,76 @@ namespace BioLicense_Portal.Infrastructure.Services
             return true;
         }
 
-        private AppResponseDto MapToDtoWithJson(AppResponseDto dto)
+        public async Task AddTierAsync(Guid appId, CreateTierRequestDto request)
         {
-            if (dto.TierConfigs == null) return dto;
+            var app = await _repository.GetByIdAsync(appId);
+            if (app == null) throw new KeyNotFoundException("Application not found.");
 
-            try
-            {
-                var jsonStr = dto.TierConfigs.ToString();
-                if (string.IsNullOrEmpty(jsonStr)) return dto;
+            // Avoid duplicates
+            if (app.Tiers.Any(t => t.Tier == request.Tier))
+                throw new InvalidOperationException($"Tier {request.Tier} already exists for this application.");
 
-                var jsonObj = JsonSerializer.Deserialize<object>(jsonStr);
-                return dto with { TierConfigs = jsonObj };
-            }
-            catch
+            var tier = new ApplicationTier
             {
-                return dto;
+                Id = Guid.NewGuid(),
+                ApplicationId = appId,
+                Tier = request.Tier,
+                Description = request.Description,
+                Parameters = request.Parameters != null ? JsonSerializer.Serialize(request.Parameters) : null,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            if (request.FeatureIds != null)
+            {
+                foreach (var fId in request.FeatureIds)
+                {
+                    if (app.Features.Any(f => f.Id == fId))
+                    {
+                        tier.TierFeatures.Add(new ApplicationTierFeature { TierId = tier.Id, FeatureId = fId });
+                    }
+                }
             }
+
+            await _repository.AddTierAsync(tier);
+        }
+
+        public async Task<bool> UpdateTierAsync(Guid tierId, UpdateTierRequestDto request)
+        {
+            var tier = await _repository.GetTierByIdAsync(tierId);
+            if (tier == null) return false;
+
+            // Load app to validate features
+            var app = await _repository.GetByIdAsync(tier.ApplicationId);
+
+            tier.Tier = request.Tier;
+            tier.Description = request.Description;
+            tier.Parameters = request.Parameters != null ? JsonSerializer.Serialize(request.Parameters) : null;
+            tier.UpdatedAt = DateTime.UtcNow;
+
+            // Update Features (Many-to-Many)
+            tier.TierFeatures.Clear();
+            if (request.FeatureIds != null)
+            {
+                foreach (var fId in request.FeatureIds)
+                {
+                    if (app != null && app.Features.Any(f => f.Id == fId))
+                    {
+                        tier.TierFeatures.Add(new ApplicationTierFeature { TierId = tier.Id, FeatureId = fId });
+                    }
+                }
+            }
+
+            await _repository.UpdateTierAsync(tier);
+            return true;
+        }
+
+        public async Task<bool> DeleteTierAsync(Guid tierId)
+        {
+            var tier = await _repository.GetTierByIdAsync(tierId);
+            if (tier == null) return false;
+
+            await _repository.DeleteTierAsync(tier);
+            return true;
         }
     }
 }

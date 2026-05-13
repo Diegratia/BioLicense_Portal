@@ -14,6 +14,8 @@ namespace BioLicense_Portal.Infrastructure.Data
         public DbSet<RefreshToken> RefreshTokens { get; set; }
         public DbSet<AppEntity> Applications { get; set; }
         public DbSet<ApplicationFeature> ApplicationFeatures { get; set; }
+        public DbSet<ApplicationTier> ApplicationTiers { get; set; }
+        public DbSet<ApplicationTierFeature> ApplicationTierFeatures { get; set; }
         public DbSet<LicenseRecord> Licenses { get; set; }
         public DbSet<LicenseRequest> LicenseRequests { get; set; }
         public DbSet<AuditLog> AuditLogs { get; set; }
@@ -27,6 +29,7 @@ namespace BioLicense_Portal.Infrastructure.Data
             modelBuilder.Entity<RefreshToken>().ToTable("refresh_tokens");
             modelBuilder.Entity<AppEntity>().ToTable("applications");
             modelBuilder.Entity<ApplicationFeature>().ToTable("application_features");
+            modelBuilder.Entity<ApplicationTier>().ToTable("application_tiers");
             modelBuilder.Entity<LicenseRecord>().ToTable("licenses");
             modelBuilder.Entity<LicenseRequest>().ToTable("license_requests");
             modelBuilder.Entity<AuditLog>().ToTable("audit_logs");
@@ -58,6 +61,24 @@ namespace BioLicense_Portal.Infrastructure.Data
                     .WithMany()
                     .HasForeignKey(r => r.ApproverUserId)
                     .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // Tier Features Many-to-Many
+            modelBuilder.Entity<ApplicationTierFeature>(entity => {
+                entity.ToTable("application_tier_features");
+                entity.HasKey(tf => new { tf.TierId, tf.FeatureId });
+                
+                entity.HasOne(tf => tf.Tier)
+                    .WithMany(t => t.TierFeatures)
+                    .HasForeignKey(tf => tf.TierId);
+                
+                entity.HasOne(tf => tf.Feature)
+                    .WithMany(f => f.TierFeatures)
+                    .HasForeignKey(tf => tf.FeatureId);
+            });
+
+            modelBuilder.Entity<ApplicationTier>(entity => {
+                entity.HasIndex(t => new { t.ApplicationId, t.Tier }).IsUnique();
             });
         }
 

@@ -19,7 +19,7 @@ namespace BioLicense_Portal.Domain.Entities
         [Column("license_type")]
         public LicenseType LicenseType { get; set; }
         [Column("license_tier")]
-        public LicenseTier LicenseTier { get; set; }
+        public LicenseTier LicenseTier { get; set; } = LicenseTier.Core;
         [Column("license_parameters")]
         public string? LicenseParameters { get; set; } // custom feature parameter dalam json, contoh pada ble yaitu max reader dan max beacon
         [Column("features")]

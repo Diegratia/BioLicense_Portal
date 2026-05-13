@@ -53,7 +53,13 @@ namespace BioLicense_Portal.Infrastructure.Repositories
                 a.Description,
                 a.PublicKey,
                 a.Status,
-                a.TierConfigs,
+                a.Tiers.Select(t => new TierResponseDto(
+                    t.Id,
+                    t.Tier,
+                    t.Description,
+                    string.Join(",", t.TierFeatures.Select(tf => tf.Feature!.FeatureKey)),
+                    t.Parameters
+                )).ToList(),
                 a.Features.Select(f => new FeatureResponseDto(
                     f.Id,
                     f.FeatureKey,
@@ -68,6 +74,7 @@ namespace BioLicense_Portal.Infrastructure.Repositories
         {
             return await _context.Applications
                 .Include(a => a.Features)
+                .Include(a => a.Tiers)
                 .ToListAsync();
         }
 
@@ -75,6 +82,9 @@ namespace BioLicense_Portal.Infrastructure.Repositories
         {
             return await _context.Applications
                 .Include(a => a.Features)
+                .Include(a => a.Tiers)
+                    .ThenInclude(t => t.TierFeatures)
+                        .ThenInclude(tf => tf.Feature)
                 .FirstOrDefaultAsync(a => a.Id == id);
         }
 
@@ -82,6 +92,7 @@ namespace BioLicense_Portal.Infrastructure.Repositories
         {
             return await _context.Applications
                 .Include(a => a.Features)
+                .Include(a => a.Tiers)
                 .FirstOrDefaultAsync(a => a.Slug == slug);
         }
 
@@ -123,6 +134,31 @@ namespace BioLicense_Portal.Infrastructure.Repositories
         public async Task AddFeatureAsync(ApplicationFeature feature)
         {
             await _context.ApplicationFeatures.AddAsync(feature);
+            await _context.SaveChangesAsync();
+        }
+
+        public async Task<ApplicationTier?> GetTierByIdAsync(Guid tierId)
+        {
+            return await _context.ApplicationTiers
+                .Include(t => t.TierFeatures)
+                .FirstOrDefaultAsync(t => t.Id == tierId);
+        }
+
+        public async Task AddTierAsync(ApplicationTier tier)
+        {
+            await _context.ApplicationTiers.AddAsync(tier);
+            await _context.SaveChangesAsync();
+        }
+
+        public async Task UpdateTierAsync(ApplicationTier tier)
+        {
+            _context.ApplicationTiers.Update(tier);
+            await _context.SaveChangesAsync();
+        }
+
+        public async Task DeleteTierAsync(ApplicationTier tier)
+        {
+            _context.ApplicationTiers.Remove(tier);
             await _context.SaveChangesAsync();
         }
     }

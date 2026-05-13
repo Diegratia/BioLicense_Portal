@@ -36,7 +36,7 @@ namespace BioLicense_Portal.Infrastructure.Security
                 issuer: _configuration["Jwt:Issuer"],
                 audience: _configuration["Jwt:Audience"],
                 claims: claims,
-                expires: DateTime.UtcNow.AddMinutes(double.Parse(_configuration["Jwt:AccessTokenExpiryInMinutes"] ?? "9000000")),
+                expires: DateTime.UtcNow.AddMinutes(double.Parse(_configuration["Jwt:AccessTokenExpiryInMinutes"] ?? "30")),
                 signingCredentials: creds
             );
 

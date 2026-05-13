@@ -1,4 +1,5 @@
 using BioLicense_Portal.Application.Interfaces;
+using Microsoft.Extensions.Configuration;
 using System;
 using System.Security.Cryptography;
 using System.Text;
@@ -7,16 +8,27 @@ namespace BioLicense_Portal.Infrastructure.Security
 {
     public class KeyGeneratorService : IKeyGeneratorService
     {
-        public (string PublicKey, string PrivateKey) GenerateKeyPair()
+        private readonly IConfiguration _configuration;
+        private readonly string _masterSecret;
+
+        public KeyGeneratorService(IConfiguration configuration)
         {
-            using var rsa = RSA.Create(2048);
-            var publicKey = Convert.ToBase64String(rsa.ExportRSAPublicKey());
-            var privateKey = Convert.ToBase64String(rsa.ExportRSAPrivateKey());
-            
-            return (publicKey, privateKey);
+            _configuration = configuration;
+            _masterSecret = _configuration["AppKeys:MasterSecret"] ?? throw new Exception("Master secret for key encryption is not configured.");
         }
 
-        public string EncryptPrivateKey(string privateKey, string passphrase)
+        public (string PublicKey, string PrivateKey) GenerateKeyPair()
+        {
+            var keyGenerator = Standard.Licensing.Security.Cryptography.KeyGenerator.Create();
+            var keyPair = keyGenerator.GenerateKeyPair();
+            
+            var rawPrivKey = keyPair.ToEncryptedPrivateKeyString(string.Empty);
+            var finalEncryptedPriv = EncryptPrivateKeyInternal(rawPrivKey, _masterSecret);
+
+            return (keyPair.ToPublicKeyString(), finalEncryptedPriv);
+        }
+
+        private string EncryptPrivateKeyInternal(string privateKey, string passphrase)
         {
             var key = DeriveKey(passphrase);
             using var aes = Aes.Create();
@@ -28,7 +40,6 @@ namespace BioLicense_Portal.Infrastructure.Security
             var plainBytes = Encoding.UTF8.GetBytes(privateKey);
             var cipherBytes = encryptor.TransformFinalBlock(plainBytes, 0, plainBytes.Length);
 
-            // Combine IV and CipherText
             var result = new byte[iv.Length + cipherBytes.Length];
             Buffer.BlockCopy(iv, 0, result, 0, iv.Length);
             Buffer.BlockCopy(cipherBytes, 0, result, iv.Length, cipherBytes.Length);
@@ -36,10 +47,10 @@ namespace BioLicense_Portal.Infrastructure.Security
             return Convert.ToBase64String(result);
         }
 
-        public string DecryptPrivateKey(string encryptedPrivateKey, string passphrase)
+        public string DecryptPrivateKey(string encryptedPrivateKey)
         {
             var fullBytes = Convert.FromBase64String(encryptedPrivateKey);
-            var key = DeriveKey(passphrase);
+            var key = DeriveKey(_masterSecret);
 
             using var aes = Aes.Create();
             aes.Key = key;

@@ -26,6 +26,7 @@ namespace BioLicense_Portal.Domain.Enums
         Enterprise,
         Custom
     }
+
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public enum LicenseStatus
     {
